@@ -148,6 +148,9 @@ class WorkflowState:
     # ML-derived signals stored alongside state (never read from markdown)
     story_signals: dict[str, Any] = field(default_factory=dict)
 
+    # Team verdicts persisted so they survive across CLI calls
+    team_verdicts: dict[str, Any] = field(default_factory=dict)
+
     def __post_init__(self) -> None:
         if not self.next_action:
             self.next_action = NEXT_ACTION_DEFAULTS.get(self.current_stage, "")
@@ -271,6 +274,7 @@ class WorkflowState:
             next_action=str(data.get("next_action", "")),
             updated_at=str(data.get("updated_at", "")),
             story_signals=dict(data.get("story_signals", {})),
+            team_verdicts=dict(data.get("team_verdicts", {})),
         )
 
     @classmethod

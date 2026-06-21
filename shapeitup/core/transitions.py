@@ -29,6 +29,10 @@ ALWAYS_ALLOWED: Final[frozenset[str]] = frozenset({
     "accounting-record",
     "reconcile",
     "dag-sync",
+    # shapeitup additions — available at every stage
+    "drift-check",      # ML design↔code drift detection
+    "team-verdict",     # record a role verdict at any stage
+    "challenge",        # raise a review finding at any stage
 })
 
 # ── Per-stage allowed commands ─────────────────────────────────────────────────
