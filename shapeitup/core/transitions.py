@@ -33,6 +33,8 @@ ALWAYS_ALLOWED: Final[frozenset[str]] = frozenset({
     "drift-check",      # ML design↔code drift detection
     "team-verdict",     # record a role verdict at any stage
     "challenge",        # raise a review finding at any stage
+    "stage-plan",       # compute parallel execution plan for current stage
+    "impl-schedule",    # compute DAG-driven story implementation schedule
 })
 
 # ── Per-stage allowed commands ─────────────────────────────────────────────────
@@ -40,6 +42,10 @@ ALWAYS_ALLOWED: Final[frozenset[str]] = frozenset({
 _SYNTH_COMMON: Final[frozenset[str]] = frozenset({
     "feedback-synth",
     "issue-advisor",
+    "po-review",
+    "tl-review",
+    "qa-review",
+    "security-scan",
 })
 
 STAGE_COMMANDS: Final[dict[Stage, frozenset[str]]] = {
@@ -75,7 +81,10 @@ STAGE_COMMANDS: Final[dict[Stage, frozenset[str]]] = {
         "next", "ci-feedback", "team-run", "team-run-level",
         "team-sync", "merge-gate", "merge-apply", "integration-gate",
         "execution-path", "challenge", "review-sync",
-        "refine", "reject", "replan", "verify-fix", *_SYNTH_COMMON,
+        "refine", "reject", "replan", "verify-fix",
+        "impl-schedule", "qa-test-spec", "pair-propose", "pair-challenge",
+        "pair-implement", "tl-impl-review", "qa-validate",
+        *_SYNTH_COMMON,
     }),
     Stage.REVIEW: frozenset({
         "approve", "reject", "review-sync", *_SYNTH_COMMON,

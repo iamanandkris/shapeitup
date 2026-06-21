@@ -36,6 +36,7 @@ def _ensure_commands_registered() -> None:
     from shapeitup.core.commands import analysis_commands    # noqa: F401
     from shapeitup.core.commands import synthesis_commands   # noqa: F401
     from shapeitup.core.commands import impl_commands        # noqa: F401
+    from shapeitup.core.commands import agent_commands       # noqa: F401
 
 
 def _load_team(state: "WorkflowState", workflow_dir: Path) -> "ActiveTeam":

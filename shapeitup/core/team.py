@@ -78,6 +78,21 @@ class ActivationCondition(str, Enum):
 # ── Role definition ────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
+class AgentTask:
+    """
+    Describes what an agent does at a given stage.
+    stage_pattern: glob-style match (e.g. "*" = all stages, "discuss" = only discuss)
+    command:       CLI command this task maps to (e.g. "po-review")
+    description:   What the agent actually does — shown in stage plan
+    artifact_name: File this task produces, relative to workflow_dir/reviews/
+    """
+    stage_pattern: str      # "*" matches all stages
+    command: str
+    description: str
+    artifact_name: str      # produced artifact, e.g. "po-review-{stage}.md"
+
+
+@dataclass(frozen=True)
 class Role:
     """
     Immutable role definition.
@@ -87,6 +102,7 @@ class Role:
     blocks_gate:           True = a BLOCK verdict from this role halts gate advancement.
     review_artifacts:      Artifacts this role should review (informational for prompt).
     bias:                  One-line description of review lens (used in LLM prompt only).
+    agent_tasks:           Ordered tasks this agent performs per stage.
     """
     name: str
     display_name: str
@@ -94,6 +110,19 @@ class Role:
     blocks_gate: bool
     review_artifacts: tuple[ReviewArtifact, ...]
     bias: str
+    agent_tasks: tuple[AgentTask, ...] = ()
+
+    def review_artifact_path(self, stage: str) -> str:
+        """Return the expected review artifact path for this role at a given stage."""
+        return f"reviews/{self.name}-review-{stage}.md"
+
+    def tasks_for_stage(self, stage: str) -> tuple[AgentTask, ...]:
+        """Return tasks applicable to a given stage."""
+        import fnmatch
+        return tuple(
+            t for t in self.agent_tasks
+            if fnmatch.fnmatch(stage, t.stage_pattern)
+        )
 
     @property
     def always_active(self) -> bool:
@@ -162,6 +191,18 @@ PRODUCT_OWNER = Role(
         "Challenges user value, scope, acceptance criteria mapping to real user need, "
         "and non-goals. Asks: does this story solve what the user actually described?"
     ),
+    agent_tasks=(
+        AgentTask(
+            stage_pattern="*",
+            command="po-review",
+            description=(
+                "Review stage artifacts for business value alignment, scope correctness, "
+                "and AC-to-user-need mapping. Flag any story that doesn't trace to a real "
+                "user need. Approve, approve-with-changes, or block with findings."
+            ),
+            artifact_name="po-review-{stage}.md",
+        ),
+    ),
 )
 
 TECH_LEAD = Role(
@@ -178,6 +219,27 @@ TECH_LEAD = Role(
         "Challenges architecture, boundaries, dependency sequencing, integration risk, "
         "and ML module selection/fallback design when relevant."
     ),
+    agent_tasks=(
+        AgentTask(
+            stage_pattern="*",
+            command="tl-review",
+            description=(
+                "Review stage artifacts for architecture correctness, boundary clarity, "
+                "dependency sequencing, and integration risk. For implementation stage, "
+                "review code for design conformance and maintainability."
+            ),
+            artifact_name="tl-review-{stage}.md",
+        ),
+        AgentTask(
+            stage_pattern="implementation",
+            command="tl-impl-review",
+            description=(
+                "Review implemented code per story: architecture conformance, "
+                "design-drift check, coupling, maintainability, and TDD adherence."
+            ),
+            artifact_name="tl-impl-review-{story}.md",
+        ),
+    ),
 )
 
 IMPLEMENTER = Role(
@@ -191,6 +253,28 @@ IMPLEMENTER = Role(
     bias=(
         "Challenges feasibility, implementation complexity, file ownership conflicts, "
         "and maintainability. Declares Allowed Write Paths explicitly."
+    ),
+    agent_tasks=(
+        AgentTask(
+            stage_pattern="implementation",
+            command="pair-propose",
+            description=(
+                "Proposer role in pair programming: read the QA test spec and story, "
+                "propose an implementation that makes the tests pass. Write clean, "
+                "minimal code. Declare all files you intend to write."
+            ),
+            artifact_name="pair-propose-{story}.md",
+        ),
+        AgentTask(
+            stage_pattern="implementation",
+            command="pair-challenge",
+            description=(
+                "Challenger role in pair programming: read the Proposer's implementation "
+                "plan. Challenge assumptions, identify risks, suggest improvements. "
+                "Agree or raise findings that must be resolved before code is written."
+            ),
+            artifact_name="pair-challenge-{story}.md",
+        ),
     ),
 )
 
@@ -207,6 +291,37 @@ QA_ENGINEER = Role(
     bias=(
         "Challenges test coverage, edge cases, fallback paths, acceptance criteria "
         "verifiability, and regression risk. Blocks if any AC has no test evidence."
+    ),
+    agent_tasks=(
+        AgentTask(
+            stage_pattern="*",
+            command="qa-review",
+            description=(
+                "Review stage artifacts for testability: are ACs observable? "
+                "Are edge cases covered? Are fallback paths specified? "
+                "Block if any AC cannot be verified by a test."
+            ),
+            artifact_name="qa-review-{stage}.md",
+        ),
+        AgentTask(
+            stage_pattern="implementation",
+            command="qa-test-spec",
+            description=(
+                "TDD first step: write failing test specifications for a story. "
+                "Tests must be runnable and must fail before implementation. "
+                "Cover all ACs, happy path, edge cases, and error conditions."
+            ),
+            artifact_name="qa-test-spec-{story}.md",
+        ),
+        AgentTask(
+            stage_pattern="implementation",
+            command="qa-validate",
+            description=(
+                "Post-implementation validation: confirm all tests pass, "
+                "check coverage meets AC requirements, identify any missed edge cases."
+            ),
+            artifact_name="qa-validate-{story}.md",
+        ),
     ),
 )
 
@@ -226,6 +341,19 @@ SECURITY_REVIEWER = Role(
     bias=(
         "Challenges auth flows, input validation, data exposure, secret handling, "
         "path traversal, subprocess safety, and API boundary security."
+    ),
+    agent_tasks=(
+        AgentTask(
+            stage_pattern="*",
+            command="security-scan",
+            description=(
+                "Review stage artifacts and any code for security issues: "
+                "auth flows, input validation, data exposure, secret handling, "
+                "path traversal, subprocess safety, API boundary security. "
+                "Block if any HIGH finding exists."
+            ),
+            artifact_name="security-review-{stage}.md",
+        ),
     ),
 )
 
@@ -331,19 +459,36 @@ class ActiveTeam:
                 )
             return "\n".join(lines) if lines else "Gate check passed."
 
-    def check_gate(self) -> "ActiveTeam.GateCheckResult":
+    def check_gate(
+        self,
+        workflow_dir: "Path | None" = None,
+        stage: str | None = None,
+    ) -> "ActiveTeam.GateCheckResult":
         """
         Return whether the gate can advance.
 
         Rules:
-          1. Every active blocking role must have submitted a verdict.
+          1. Every active blocking role must have produced a review artifact
+             (if workflow_dir + stage are provided — preferred path).
           2. No active blocking role verdict may be BLOCK.
+          3. Legacy: if workflow_dir not provided, falls back to verdict-only check.
         """
+        from pathlib import Path as _Path
+
         pending: list[str] = []
         blocking: list[str] = []
 
         for role in self.blocking_roles:
             rv = self.verdicts.get(role.name)
+
+            # Artifact-based gate (preferred): check that the review file exists
+            if workflow_dir is not None and stage is not None:
+                artifact = _Path(workflow_dir) / role.review_artifact_path(stage)
+                if not artifact.exists():
+                    pending.append(role.display_name)
+                    continue
+
+            # Verdict-based gate (legacy / fallback)
             if rv is None or not rv.is_complete:
                 pending.append(role.display_name)
             elif rv.is_blocking:
