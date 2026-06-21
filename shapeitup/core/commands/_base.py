@@ -37,6 +37,7 @@ class CommandContext:
 @dataclass
 class CommandResult:
     state: WorkflowState
+    ok: bool = True               # False = command failed (shown to user, not sys.exit)
     message: str = ""
     ml_outputs: dict[str, Any] = field(default_factory=dict)   # ML classifier results
     needs_llm: bool = False       # True = caller should invoke LLM synthesis

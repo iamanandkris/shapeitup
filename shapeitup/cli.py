@@ -31,9 +31,11 @@ from pathlib import Path
 
 def _ensure_commands_registered() -> None:
     """Import all command modules to trigger @register() decorators."""
-    from shapeitup.core.commands import gate_commands  # noqa: F401
-    from shapeitup.core.commands import team_commands   # noqa: F401
-    from shapeitup.core.commands import analysis_commands  # noqa: F401
+    from shapeitup.core.commands import gate_commands        # noqa: F401
+    from shapeitup.core.commands import team_commands        # noqa: F401
+    from shapeitup.core.commands import analysis_commands    # noqa: F401
+    from shapeitup.core.commands import synthesis_commands   # noqa: F401
+    from shapeitup.core.commands import impl_commands        # noqa: F401
 
 
 def _load_team(state: "WorkflowState", workflow_dir: Path) -> "ActiveTeam":
@@ -173,7 +175,7 @@ def run(
 
     # ── 7. Build return value ──────────────────────────────────────────────────
     output = {
-        "ok": True,
+        "ok": cmd_result.ok,
         "command": command,
         "slug": slug,
         "stage": cmd_result.state.current_stage.value,
