@@ -210,7 +210,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--findings",default="",      help="Pipe-separated blocking findings")
     parser.add_argument("--design-file", default="",  help="Path to design file")
     parser.add_argument("--json",    action="store_true", help="Output JSON instead of text")
+    parser.add_argument("--output-format", choices=["json", "text"], default=None,
+                        help="Output format: json or text (alias for --json)")
     args = parser.parse_args(argv)
+
+    use_json = args.json or (getattr(args, "output_format", None) == "json")
 
     result = run(
         slug=args.slug,
@@ -222,10 +226,10 @@ def main(argv: list[str] | None = None) -> None:
         verdict=args.verdict,
         findings=args.findings,
         design_file=args.design_file,
-        output_format="json" if args.json else "text",
+        output_format="json" if use_json else "text",
     )
 
-    if args.json:
+    if use_json:
         print(json.dumps(result, indent=2))
     else:
         if result.get("ok"):

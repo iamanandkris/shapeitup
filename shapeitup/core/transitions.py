@@ -35,6 +35,7 @@ ALWAYS_ALLOWED: Final[frozenset[str]] = frozenset({
     "challenge",        # raise a review finding at any stage
     "stage-plan",       # compute parallel execution plan for current stage
     "impl-schedule",    # compute DAG-driven story implementation schedule
+    "review-sync",      # gate check — allowed at every stage
 })
 
 # ── Per-stage allowed commands ─────────────────────────────────────────────────
@@ -83,7 +84,7 @@ STAGE_COMMANDS: Final[dict[Stage, frozenset[str]]] = {
         "execution-path", "challenge", "review-sync",
         "refine", "reject", "replan", "verify-fix",
         "impl-schedule", "qa-test-spec", "pair-propose", "pair-challenge",
-        "pair-implement", "tl-impl-review", "qa-validate",
+        "pair-implement", "tl-impl-review", "qa-validate", "impl-complete",
         *_SYNTH_COMMON,
     }),
     Stage.REVIEW: frozenset({

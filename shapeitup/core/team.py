@@ -481,14 +481,24 @@ class ActiveTeam:
         for role in self.blocking_roles:
             rv = self.verdicts.get(role.name)
 
-            # Artifact-based gate (preferred): check that the review file exists
             if workflow_dir is not None and stage is not None:
+                # Artifact-based gate (preferred): file on disk = review happened.
+                # A missing file means pending; a present file means done unless
+                # an explicit BLOCK verdict was also recorded in memory.
                 artifact = _Path(workflow_dir) / role.review_artifact_path(stage)
                 if not artifact.exists():
                     pending.append(role.display_name)
-                    continue
+                else:
+                    # Artifact present — check only for explicit block verdict.
+                    if rv is not None and rv.is_blocking:
+                        blocking.append(
+                            f"{role.display_name}"
+                            + (f": {rv.blocking_findings[0]}" if rv.blocking_findings else "")
+                        )
+                    # else: artifact present, no block → treated as approved
+                continue  # don't fall through to verdict-only check
 
-            # Verdict-based gate (legacy / fallback)
+            # Verdict-only gate (legacy fallback — no workflow_dir provided)
             if rv is None or not rv.is_complete:
                 pending.append(role.display_name)
             elif rv.is_blocking:

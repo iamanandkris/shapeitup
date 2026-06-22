@@ -273,3 +273,127 @@ class TestStorySignalsFromPathResult(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ── check_gate: artifact-based gate (new behaviour) ────────────────────────────
+
+class TestCheckGateArtifactBased(unittest.TestCase):
+    """
+    When workflow_dir + stage are provided:
+    - Artifact on disk → role approved (no in-memory verdict required)
+    - Artifact on disk + BLOCK verdict → blocking
+    - Artifact missing → pending regardless of in-memory verdict
+    """
+
+    def _team(self):
+        from shapeitup.core.team import assemble_team_from_signals, StorySignals
+        return assemble_team_from_signals(StorySignals())
+
+    def test_artifact_on_disk_clears_gate(self, tmp_path=None):
+        import tempfile, os
+        from pathlib import Path
+        team = self._team()
+        with tempfile.TemporaryDirectory() as d:
+            wdir = Path(d)
+            reviews = wdir / "reviews"
+            reviews.mkdir()
+            stage = "discuss"
+            # Write artifact files for all blocking roles
+            for role in team.blocking_roles:
+                (reviews / f"{role.name}-review-{stage}.md").write_text(
+                    f"## {role.display_name} Review\n### Verdict: approve\n"
+                )
+            gate = team.check_gate(workflow_dir=wdir, stage=stage)
+            self.assertTrue(gate.can_advance, f"Expected gate clear, got: {gate.reason}")
+            self.assertEqual(gate.pending_roles, [])
+            self.assertEqual(gate.blocking_roles, [])
+
+    def test_artifact_missing_is_pending(self):
+        import tempfile
+        from pathlib import Path
+        team = self._team()
+        with tempfile.TemporaryDirectory() as d:
+            wdir = Path(d)
+            # No artifacts written at all
+            gate = team.check_gate(workflow_dir=wdir, stage="discuss")
+            self.assertFalse(gate.can_advance)
+            self.assertEqual(gate.reason, "pending_reviews")
+            self.assertGreater(len(gate.pending_roles), 0)
+
+    def test_artifact_present_plus_block_verdict_is_blocking(self):
+        import tempfile
+        from pathlib import Path
+        from shapeitup.core.team import Verdict, RoleVerdict
+        team = self._team()
+        with tempfile.TemporaryDirectory() as d:
+            wdir = Path(d)
+            reviews = wdir / "reviews"
+            reviews.mkdir()
+            stage = "discuss"
+            # Write artifacts for all blocking roles
+            for role in team.blocking_roles:
+                (reviews / f"{role.name}-review-{stage}.md").write_text("done")
+            # Record a BLOCK verdict for product-owner
+            team.record_verdict(
+                role_name="product-owner",
+                verdict=Verdict.BLOCK,
+                summary="Scope is wrong",
+                blocking_findings=["Out-of-scope feature included"],
+            )
+            gate = team.check_gate(workflow_dir=wdir, stage=stage)
+            self.assertFalse(gate.can_advance)
+            self.assertEqual(gate.reason, "blocked_by_role")
+            self.assertTrue(any("Product Owner" in r for r in gate.blocking_roles))
+
+    def test_partial_artifacts_pending_for_missing_roles(self):
+        import tempfile
+        from pathlib import Path
+        team = self._team()
+        blocking = team.blocking_roles
+        if len(blocking) < 2:
+            self.skipTest("Need at least 2 blocking roles")
+        with tempfile.TemporaryDirectory() as d:
+            wdir = Path(d)
+            reviews = wdir / "reviews"
+            reviews.mkdir()
+            stage = "discuss"
+            # Write artifact for only the first blocking role
+            first = blocking[0]
+            (reviews / f"{first.name}-review-{stage}.md").write_text("done")
+            gate = team.check_gate(workflow_dir=wdir, stage=stage)
+            self.assertFalse(gate.can_advance)
+            # The first role should NOT be pending; the rest should be
+            self.assertNotIn(first.display_name, gate.pending_roles)
+            self.assertGreater(len(gate.pending_roles), 0)
+
+    def test_no_workflow_dir_falls_back_to_verdict_check(self):
+        """Without workflow_dir, gate requires in-memory verdicts."""
+        from shapeitup.core.team import Verdict
+        team = self._team()
+        # No verdicts recorded, no workflow_dir → all pending
+        gate = team.check_gate()
+        self.assertFalse(gate.can_advance)
+        self.assertGreater(len(gate.pending_roles), 0)
+
+
+# ── review-sync in ALWAYS_ALLOWED ──────────────────────────────────────────────
+
+class TestReviewSyncAlwaysAllowed(unittest.TestCase):
+    def test_review_sync_allowed_at_every_stage(self):
+        from shapeitup.core.transitions import Stage, allowed_commands_for as get_allowed_commands
+        for stage in Stage:
+            allowed = get_allowed_commands(stage)
+            self.assertIn(
+                "review-sync", allowed,
+                f"review-sync should be ALWAYS_ALLOWED but missing from {stage.value}"
+            )
+
+    def test_stage_plan_allowed_at_every_stage(self):
+        from shapeitup.core.transitions import Stage, allowed_commands_for as get_allowed_commands
+        for stage in Stage:
+            self.assertIn("stage-plan", get_allowed_commands(stage))
+
+    def test_impl_schedule_allowed_at_every_stage(self):
+        from shapeitup.core.transitions import Stage, allowed_commands_for as get_allowed_commands
+        for stage in Stage:
+            self.assertIn("impl-schedule", get_allowed_commands(stage))

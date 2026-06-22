@@ -7,6 +7,7 @@ Handlers for team-related commands:
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 
 from shapeitup.core.commands._base import CommandContext, CommandResult
@@ -101,24 +102,102 @@ def handle_challenge(
 
 # ── review-sync ────────────────────────────────────────────────────────────────
 
+_SECURITY_HIGH_RE = re.compile(r"\b(?:severity|finding)[:\s]+high\b", re.IGNORECASE)
+
+
+def _scan_security_artifact(workflow_dir, stage: str) -> list[str]:
+    """Return list of HIGH-severity lines from the security review artifact, if any."""
+    artifact = workflow_dir / f"reviews/security-review-{stage}.md"
+    if not artifact.exists():
+        return []
+    findings: list[str] = []
+    for line in artifact.read_text(encoding="utf-8").splitlines():
+        if _SECURITY_HIGH_RE.search(line):
+            findings.append(line.strip())
+    return findings
+
+
 @register("review-sync")
 def handle_review_sync(
     state: WorkflowState,
     ctx: CommandContext,
     team: ActiveTeam | None,
 ) -> CommandResult:
-    if team:
-        gate = team.check_gate()
-        if gate.can_advance:
-            state.challenge_note = ""
-            state.next_action = "Gate cleared — proceed to approve or next"
+    """
+    Run the gate check and return structured ml_outputs so the skill can decide
+    whether to auto-advance, pause for human input, or surface blocking findings.
+
+    ml_outputs schema:
+      gate_clear: bool
+      stop_reason: null | "pending_reviews" | "role_block" | "security_high"
+      pending_roles: list[str]
+      blocking_roles: list[str]
+      security_high_findings: list[str]   # non-empty only when stop_reason == "security_high"
+      auto_advance: bool  # True when gate_clear AND no security/block issues
+    """
+    if team is None:
+        return CommandResult(
+            state=state,
+            message="review-sync: no active team",
+            ml_outputs={
+                "gate_clear": False,
+                "stop_reason": "no_team",
+                "pending_roles": [],
+                "blocking_roles": [],
+                "security_high_findings": [],
+                "auto_advance": False,
+            },
+        )
+
+    gate = team.check_gate(
+        workflow_dir=ctx.workflow_dir,
+        stage=state.current_stage.value,
+    )
+    stage = state.current_stage.value
+
+    # Scan security artifact for HIGH findings regardless of gate status
+    security_highs = _scan_security_artifact(ctx.workflow_dir, stage)
+
+    if gate.can_advance:
+        state.challenge_note = ""
+        # Even if gate passes, HIGH security findings must stop auto-advance
+        if security_highs:
+            stop_reason: str | None = "security_high"
+            auto_advance = False
+            state.next_action = "Security HIGH finding — requires human review before advancing"
         else:
-            state.next_action = gate.error_message()
-        state._touch()
-        msg = f"review-sync: gate={'✓ clear' if gate.can_advance else '✗ ' + gate.reason}"
+            stop_reason = None
+            auto_advance = True
+            state.next_action = "Gate cleared — auto-advancing stage"
     else:
-        msg = "review-sync: no active team"
-    return CommandResult(state=state, message=msg)
+        auto_advance = False
+        if gate.blocking_roles:
+            stop_reason = "role_block"
+            state.next_action = gate.error_message()
+        else:
+            stop_reason = "pending_reviews"
+            state.next_action = gate.error_message()
+
+    state._touch()
+
+    msg = (
+        f"review-sync: gate={'✓ clear' if gate.can_advance else '✗ ' + gate.reason}"
+        + (f" | security HIGH findings: {len(security_highs)}" if security_highs else "")
+        + (f" | auto_advance: {auto_advance}")
+    )
+
+    return CommandResult(
+        state=state,
+        message=msg,
+        ml_outputs={
+            "gate_clear": gate.can_advance,
+            "stop_reason": stop_reason,
+            "pending_roles": gate.pending_roles,
+            "blocking_roles": gate.blocking_roles,
+            "security_high_findings": security_highs,
+            "auto_advance": auto_advance,
+        },
+    )
 
 
 # ── memory-record ──────────────────────────────────────────────────────────────

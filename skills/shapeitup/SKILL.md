@@ -26,6 +26,7 @@ description: >
 ```
 shapeitup:<command> ["<argument>"]
 shapeitup:run               # run the full current stage
+shapeitup:run --checkpoints   # pause before each stage advance for human sign-off
 shapeitup:approve           # gate pass
 shapeitup:capability-synth  # generate capabilities doc
 shapeitup:pair-implement "Story 3: Add webhook handler"
@@ -106,15 +107,30 @@ For each phase:
 - Each agent: calls the Python CLI for its command, performs the LLM synthesis, writes the artifact.
 - Wait for all agents to complete before moving to the next phase.
 
-### Step 3 — Gate check
+### Step 3 — Gate check (auto-advance)
 
 After all phases complete, run:
 ```bash
 python -m shapeitup.cli --slug <slug> --root <root> --command review-sync --output-format json
 ```
 
-If gate is clear → render state and offer `shapeitup:approve`.
-If gate is not clear → show which roles are pending, offer to re-run those agents.
+Parse `result["ml_outputs"]` and act based on `auto_advance` and `stop_reason`:
+
+| `auto_advance` | `stop_reason` | Action |
+|---|---|---|
+| `true` | `null` | Auto-call `approve` — no human needed |
+| `false` | `"pending_reviews"` | Show pending roles, offer to re-run their agents |
+| `false` | `"role_block"` | Show blocking role findings, ask user how to proceed |
+| `false` | `"security_high"` | **Stop. Surface security findings. Do not proceed without explicit user instruction.** |
+| `false` | `"no_team"` | Error — team not initialized |
+
+**Auto-advance** (when `auto_advance: true`):
+```bash
+python -m shapeitup.cli --slug <slug> --root <root> --command approve --reason "all reviews passed" --output-format json
+```
+Then render the state table and announce the stage has advanced.
+
+**`--checkpoints` flag**: If the user ran `shapeitup:run --checkpoints`, always pause before `approve` even when `auto_advance: true`. Show the gate summary and ask "Advance to next stage?".
 
 ---
 
@@ -164,6 +180,18 @@ Phase 3 — Parallel validation (parallel within story)
 ```
 
 Group N+1 only starts after Group N's validation phase completes.
+
+### After all groups complete — advance the workflow
+
+Once every story group has finished Phase 3 (validation), run:
+```bash
+python -m shapeitup.cli --slug <slug> --root <root> --command impl-complete --reason "all stories implemented" --output-format json
+```
+This writes `implementation-manifest.md` listing every validated story. Then call `next` to advance to the review stage:
+```bash
+python -m shapeitup.cli --slug <slug> --root <root> --command next --output-format json
+```
+**If code was written outside the TDD flow** (e.g. directly in the editor), still run `impl-complete` — it will warn about missing validation artifacts. You can then either run the validations manually or use `shapeitup:override` to skip.
 
 ---
 
@@ -274,7 +302,7 @@ Block if any HIGH finding.
 ### `qa-test-spec`
 You are the QA Engineer. Write failing test specifications BEFORE any implementation.
 Write spec: `.workflow/<slug>/reviews/qa-test-spec-<story-slug>.md`
-Write tests: `tests/stories/<story-slug>_test.py`
+Write tests: `tests/stories/<story-slug>_test.py` — relative to the **project root** (the repo being built, NOT the `.workflow/` dir).
 Tests MUST fail before implementation.
 
 ### `pair-propose`
@@ -287,7 +315,8 @@ Write: `.workflow/<slug>/reviews/pair-challenge-<story-slug>.md`
 
 ### `pair-implement`
 You are the Implementer. Read proposal + challenge → write final consensus code.
-Make all failing tests pass. Write the actual source files.
+**Write actual source files to the project root** (e.g. `src/`, `<package>/`), NOT inside `.workflow/`. These are the deliverable files that users will run.
+Make all failing tests pass. Confirm which tests pass after writing.
 
 ### `tl-impl-review`
 You are the Tech Lead. Review implemented code for architecture conformance, TDD adherence, design drift.
@@ -325,7 +354,7 @@ For `impl-schedule`: render as a group table with story counts.
 
 ## Gate rules
 
-1. **Never call `approve` until `review-sync` confirms all review artifacts exist.**
+1. **Auto-call `approve` when `review-sync` returns `auto_advance: true`.** Use `--checkpoints` to always pause.
 2. **Never write a review artifact on behalf of a role unless you are that agent.** Each role review is done by a dedicated agent with that role's perspective.
 3. **`override` requires a reason.** Ask before using it.
 4. **Pair programming disagreement**: surface to user after 3 rounds. Do not auto-resolve.

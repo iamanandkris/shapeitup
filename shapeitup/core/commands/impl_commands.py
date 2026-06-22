@@ -296,3 +296,90 @@ def handle_integration_gate(
         message=f"integration-gate: ✓ PASSED — {story_count} stories, no DAG errors",
         ml_outputs={"story_count": story_count, "dag_errors": errors},
     )
+
+
+# ── impl-complete ──────────────────────────────────────────────────────────────
+
+@register("impl-complete")
+def handle_impl_complete(
+    state: WorkflowState,
+    ctx: CommandContext,
+    team: ActiveTeam | None,
+) -> CommandResult:
+    """
+    Mark the implementation stage as complete.
+
+    Scans the workflow dir for all expected story artifacts (qa-validate-*,
+    tl-impl-review-*) and writes an implementation-manifest.md summarising
+    what was built. This manifest is the gate artifact that allows `next`
+    to advance from implementation → review.
+
+    Usage: shapeitup:impl-complete --reason "all 4 stories implemented"
+    """
+    reviews_dir = ctx.workflow_dir / "reviews"
+    manifest_path = ctx.workflow_dir / "implementation-manifest.md"
+
+    # Collect all qa-validate and tl-impl-review artifacts present
+    validated: list[str] = []
+    tl_reviewed: list[str] = []
+    if reviews_dir.exists():
+        for f in sorted(reviews_dir.iterdir()):
+            if f.name.startswith("qa-validate-"):
+                validated.append(f.name)
+            elif f.name.startswith("tl-impl-review-"):
+                tl_reviewed.append(f.name)
+
+    lines = [
+        "# Implementation Manifest\n",
+        f"Completed: {_now()}\n",
+        f"Note: {ctx.reason or 'implementation complete'}\n",
+        "\n## Stories validated by QA\n",
+    ]
+    for v in validated:
+        story = v.replace("qa-validate-", "").replace(".md", "")
+        lines.append(f"- {story}\n")
+    if not validated:
+        lines.append("- (none recorded — code may have been written outside TDD flow)\n")
+
+    lines.append("\n## Stories reviewed by Tech Lead\n")
+    for r in tl_reviewed:
+        story = r.replace("tl-impl-review-", "").replace(".md", "")
+        lines.append(f"- {story}\n")
+    if not tl_reviewed:
+        lines.append("- (none recorded)\n")
+
+    lines.append(
+        "\n## Next step\n"
+        "Run `shapeitup:next` to advance to the review stage.\n"
+    )
+
+    ctx.workflow_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("".join(lines), encoding="utf-8")
+
+    # Warn if no validation artifacts found (code written outside shapeitup)
+    warnings = []
+    if not validated and not tl_reviewed:
+        warnings.append(
+            "No qa-validate or tl-impl-review artifacts found. "
+            "If code was written outside the TDD flow, run tests manually "
+            "and use `shapeitup:override` if you need to skip validation."
+        )
+
+    state.next_action = "Implementation manifest written — run shapeitup:next to advance to review"
+    state._touch()
+
+    return CommandResult(
+        state=state,
+        ok=True,
+        message=(
+            f"impl-complete: manifest written "
+            f"({len(validated)} stories QA-validated, {len(tl_reviewed)} TL-reviewed)"
+        ),
+        artifacts_written=["implementation-manifest.md"],
+        warnings=warnings,
+        ml_outputs={
+            "validated_stories": validated,
+            "tl_reviewed_stories": tl_reviewed,
+            "manifest_path": str(manifest_path),
+        },
+    )
