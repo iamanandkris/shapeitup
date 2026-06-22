@@ -1,7 +1,7 @@
 ---
 name: shapeitup
 description: >
-  Use when the user writes shapeitup:<command> or asks to start, continue, or
+  Use when the user writes shapeitup:{command} or asks to start, continue, or
   run a staged engineering delivery workflow. Handles all shapeitup commands
   including parallel agent orchestration, TDD pair programming, and role-based
   review. Each role (Product Owner, Tech Lead, QA, Security Reviewer) is an
@@ -24,7 +24,7 @@ description: >
 ## Invocation patterns
 
 ```
-shapeitup:<command> ["<argument>"]
+shapeitup:{command} ["{argument}"]
 shapeitup:run               # run the full current stage
 shapeitup:run --checkpoints   # pause before each stage advance for human sign-off
 shapeitup:approve           # gate pass
@@ -38,9 +38,9 @@ shapeitup:pair-implement "Story 3: Add webhook handler"
 
 ```bash
 python -m shapeitup.cli \
-  --slug  <slug>   \
-  --root  <path>   \
-  --command <cmd>  \
+  --slug  {slug}   \
+  --root  {path}   \
+  --command {cmd}  \
   [--reason  "..."] \
   [--role    "..."] \
   [--verdict "..."] \
@@ -60,7 +60,7 @@ When the user says `shapeitup:run` (or equivalent), execute the full current sta
 ### Step 1 — Get the plan
 
 ```bash
-python -m shapeitup.cli --slug <slug> --root <root> --command stage-plan --output-format json
+python -m shapeitup.cli --slug {slug} --root {root} --command stage-plan --output-format json
 ```
 
 Parse `result["ml_outputs"]` → `plan`. It has this shape:
@@ -111,7 +111,7 @@ For each phase:
 
 After all phases complete, run:
 ```bash
-python -m shapeitup.cli --slug <slug> --root <root> --command review-sync --output-format json
+python -m shapeitup.cli --slug {slug} --root {root} --command review-sync --output-format json
 ```
 
 Parse `result["ml_outputs"]` and act based on `auto_advance` and `stop_reason`:
@@ -126,7 +126,7 @@ Parse `result["ml_outputs"]` and act based on `auto_advance` and `stop_reason`:
 
 **Auto-advance** (when `auto_advance: true`):
 ```bash
-python -m shapeitup.cli --slug <slug> --root <root> --command approve --reason "all reviews passed" --output-format json
+python -m shapeitup.cli --slug {slug} --root {root} --command approve --reason "all reviews passed" --output-format json
 ```
 Then render the state table and announce the stage has advanced.
 
@@ -141,7 +141,7 @@ Implementation is different. The plan references `impl-schedule`.
 ### Step 1 — Get story groups
 
 ```bash
-python -m shapeitup.cli --slug <slug> --root <root> --command impl-schedule --output-format json
+python -m shapeitup.cli --slug {slug} --root {root} --command impl-schedule --output-format json
 ```
 
 Parse `result["ml_outputs"]["groups"]`:
@@ -161,7 +161,7 @@ Each story agent runs the TDD pipeline:
 ```
 Phase 1 — QA writes failing tests (sequential, must complete first)
   → call qa-test-spec
-  → QA agent writes tests/stories/<slug>_test.py
+  → QA agent writes tests/stories/{slug}_test.py
 
 Phase 2 — Pair programming (sequential within story, parallel across stories)
   → call pair-propose  (Proposer agent)
@@ -185,11 +185,11 @@ Group N+1 only starts after Group N's validation phase completes.
 
 Once every story group has finished Phase 3 (validation), run:
 ```bash
-python -m shapeitup.cli --slug <slug> --root <root> --command impl-complete --reason "all stories implemented" --output-format json
+python -m shapeitup.cli --slug {slug} --root {root} --command impl-complete --reason "all stories implemented" --output-format json
 ```
 This writes `implementation-manifest.md` listing every validated story. Then call `next` to advance to the review stage:
 ```bash
-python -m shapeitup.cli --slug <slug> --root <root> --command next --output-format json
+python -m shapeitup.cli --slug {slug} --root {root} --command next --output-format json
 ```
 **If code was written outside the TDD flow** (e.g. directly in the editor), still run `impl-complete` — it will warn about missing validation artifacts. You can then either run the validations manually or use `shapeitup:override` to skip.
 
@@ -202,14 +202,14 @@ When spawning pair programming agents, use this structured dialogue:
 ### Proposer agent prompt template
 
 ```
-You are Implementer A (Proposer) working on <slug>, story: <story>.
+You are Implementer A (Proposer) working on {slug}, story: {story}.
 
 Read the QA test spec and propose an implementation that makes all tests pass.
 
-QA test spec: <content of reviews/qa-test-spec-<slug>.md>
-Story: <relevant story from stories.md>
-Interface spec: <openspec.md>
-Implementation plan: <implementation-plan.md>
+QA test spec: {content of reviews/qa-test-spec-{slug}.md}
+Story: {relevant story from stories.md}
+Interface spec: {openspec.md}
+Implementation plan: {implementation-plan.md}
 
 Your proposal must:
 1. List every file you will write or modify
@@ -217,18 +217,18 @@ Your proposal must:
 3. Identify risks and assumptions
 4. Show how each test case will pass
 
-Write your proposal to: reviews/pair-propose-<slug>.md
+Write your proposal to: reviews/pair-propose-{slug}.md
 ```
 
 ### Challenger agent prompt template
 
 ```
-You are Implementer B (Challenger) working on <slug>, story: <story>.
+You are Implementer B (Challenger) working on {slug}, story: {story}.
 
 Review the Proposer's plan. Be specific and constructive — challenge to improve, not block.
 
-Proposal: <content of reviews/pair-propose-<slug>.md>
-QA test spec: <content of reviews/qa-test-spec-<slug>.md>
+Proposal: {content of reviews/pair-propose-{slug}.md}
+QA test spec: {content of reviews/qa-test-spec-{slug}.md}
 
 Check for: test coverage, coupling, edge cases, complexity, file ownership conflicts, risks.
 
@@ -237,7 +237,7 @@ Your response must have:
 - For agree-with-changes: specific changes (each with severity high/med/low)
 - For disagree: blocking finding that must be resolved before coding
 
-Write your response to: reviews/pair-challenge-<slug>.md
+Write your response to: reviews/pair-challenge-{slug}.md
 ```
 
 ### Consensus rule
@@ -252,18 +252,18 @@ Write your response to: reviews/pair-challenge-<slug>.md
 
 ### `capability-synth`
 Read: existing capabilities.md (if any), repo README, design docs.
-Write: `.workflow/<slug>/capabilities.md`
-Format: `# Capabilities — <slug>` / `## In scope` / `## Out of scope` / `## Open questions`
+Write: `.workflow/{slug}/capabilities.md`
+Format: `# Capabilities — {slug}` / `## In scope` / `## Out of scope` / `## Open questions`
 
 ### `design-synth`
 Read: capabilities.md, repo codebase entrypoints.
-Write: `.workflow/<slug>/design-seed.md`
+Write: `.workflow/{slug}/design-seed.md`
 Format: Problem statement / Proposed approach / Key interfaces and contracts / Risks / Unknowns
 
 ### `story-synth`
 Read: capabilities.md, design-seed.md.
-Write: `.workflow/<slug>/stories.md`
-Each story: `## Story N: <title>` / Goal / Value / ACs (testable, observable) / Dependencies (Depends on:) / Test hints
+Write: `.workflow/{slug}/stories.md`
+Each story: `## Story N: {title}` / Goal / Value / ACs (testable, observable) / Dependencies (Depends on:) / Test hints
 
 ### `story-enrichment-synth`
 Read + update in place: stories.md
@@ -271,65 +271,65 @@ Add per story: edge cases, validation requirements, error handling, cross-cuttin
 
 ### `openspec-synth`
 Read: stories.md, design-seed.md, execution-path.json (interface signal count).
-Write: `.workflow/<slug>/openspec.md`
+Write: `.workflow/{slug}/openspec.md`
 Format: API endpoints/functions / Data models / Events / Auth and permissions
 
 ### `implementation-plan-synth`
 Read: stories.md, openspec.md, design-seed.md.
-Write: `.workflow/<slug>/implementation-plan.md`
+Write: `.workflow/{slug}/implementation-plan.md`
 Format: Build order with rationale / Parallel tracks / Integration checkpoints / Risk items / Definition of done
 
 ### `po-review`
 You are the Product Owner. Review business value, scope, AC-to-user-need mapping.
-Write: `.workflow/<slug>/reviews/product-owner-review-<stage>.md`
+Write: `.workflow/{slug}/reviews/product-owner-review-{stage}.md`
 Verdict: approve | approve-with-changes | block
 
 ### `tl-review`
 You are the Tech Lead. Review architecture, boundaries, dependency sequencing, integration risk.
-Write: `.workflow/<slug>/reviews/tech-lead-review-<stage>.md`
+Write: `.workflow/{slug}/reviews/tech-lead-review-{stage}.md`
 Verdict: approve | approve-with-changes | block
 
 ### `qa-review`
 You are the QA Engineer. Review testability — can every AC be verified by a test?
-Write: `.workflow/<slug>/reviews/qa-engineer-review-<stage>.md`
+Write: `.workflow/{slug}/reviews/qa-engineer-review-{stage}.md`
 Verdict: approve | approve-with-changes | block. Block if any AC is untestable.
 
 ### `security-scan`
 You are the Security Reviewer. Check auth, input validation, data exposure, secrets, injection.
-Write: `.workflow/<slug>/reviews/security-review-<stage>.md`
+Write: `.workflow/{slug}/reviews/security-review-{stage}.md`
 Block if any HIGH finding.
 
 ### `qa-test-spec`
 You are the QA Engineer. Write failing test specifications BEFORE any implementation.
-Write spec: `.workflow/<slug>/reviews/qa-test-spec-<story-slug>.md`
+Write spec: `.workflow/{slug}/reviews/qa-test-spec-{story-slug}.md`
 Write tests to the **project root** using the language-appropriate path and framework (see Project language detection table above). Examples:
-- Python: `tests/stories/<story-slug>_test.py`
-- Scala: `src/test/scala/<package>/<StorySlugSpec>.scala` — extend `CatsEffectSuite` if using CatsEffect
-- TypeScript: `src/__tests__/<story-slug>.test.ts`
+- Python: `tests/stories/{story-slug}_test.py`
+- Scala: `src/test/scala/{package}/{StorySlugSpec}.scala` — extend `CatsEffectSuite` if using CatsEffect
+- TypeScript: `src/__tests__/{story-slug}.test.ts`
 Tests MUST fail (or not compile) before any implementation is written. Confirm failure before handing off to pair-propose.
 
 ### `pair-propose`
 You are Implementer A (Proposer). Read test spec + story → propose implementation.
-Write: `.workflow/<slug>/reviews/pair-propose-<story-slug>.md`
+Write: `.workflow/{slug}/reviews/pair-propose-{story-slug}.md`
 
 ### `pair-challenge`
 You are Implementer B (Challenger). Read proposal → challenge and respond.
-Write: `.workflow/<slug>/reviews/pair-challenge-<story-slug>.md`
+Write: `.workflow/{slug}/reviews/pair-challenge-{story-slug}.md`
 
 ### `pair-implement`
 You are the Implementer. Read proposal + challenge → write final consensus code.
-**Write actual source files to the project root** using language-appropriate locations (see Project language detection table). For Scala: `src/main/scala/<package>/`. NOT inside `.workflow/` — these are deliverable files.
+**Write actual source files to the project root** using language-appropriate locations (see Project language detection table). For Scala: `src/main/scala/{package}/`. NOT inside `.workflow/` — these are deliverable files.
 For Scala/CatsEffect: match the effect system the project uses. Read existing files in the same package before writing — replicate import style, type aliases, and any custom `App`/`Effect` traits. Never introduce `Future` or mutable state.
 Make all failing tests pass. Run the test command and confirm results.
 
 ### `tl-impl-review`
 You are the Tech Lead. Review implemented code for architecture conformance, TDD adherence, design drift.
-Write: `.workflow/<slug>/reviews/tl-impl-review-<story-slug>.md`
+Write: `.workflow/{slug}/reviews/tl-impl-review-{story-slug}.md`
 
 ### `qa-validate`
 You are the QA Engineer. Run tests, check all ACs covered, identify regressions.
-Use the language-appropriate test runner (see Project language detection table). For Scala: `sbt testOnly *<SpecName>` to run only the story's tests, then `sbt test` for the full suite to check for regressions.
-Write: `.workflow/<slug>/reviews/qa-validate-<story-slug>.md`
+Use the language-appropriate test runner (see Project language detection table). For Scala: `sbt testOnly *{SpecName}` to run only the story's tests, then `sbt test` for the full suite to check for regressions.
+Write: `.workflow/{slug}/reviews/qa-validate-{story-slug}.md`
 
 ---
 
@@ -338,12 +338,12 @@ Write: `.workflow/<slug>/reviews/qa-validate-<story-slug>.md`
 After any command:
 
 ```
-── shapeitup: <slug> ──────────────────────────────────
-  Stage      : <stage>
-  Gate       : <gate_status>
+── shapeitup: {slug} ──────────────────────────────────
+  Stage      : {stage}
+  Gate       : {gate_status}
   Team       : PO ✓  TL ✓  QA ⏳  (✓=done ✗=blocked ⏳=pending)
-  Next action: <next_action>
-  Message    : <message>
+  Next action: {next_action}
+  Message    : {message}
 ───────────────────────────────────────────────────────
 ```
 
@@ -408,8 +408,8 @@ When `project_lang = scala`:
 - **Test framework**: check for MUnit (`munit` in `build.sbt`), ScalaTest (`scalatest`), or Specs2. Default to MUnit if unclear.
 - **CatsEffect tests**: extend `CatsEffectSuite` (MUnit) or use `IOSpec` trait. Wrap IO assertions in `assertIO(...)` or `.assertEquals(...)`.
 - **Effect system**: if the repo has a custom `Effect` or `App` trait on top of CatsEffect, read its definition before proposing implementations — do not bypass it.
-- **Test file location**: `src/test/scala/<package>/<StoryNameSpec>.scala`
-- **Source file location**: `src/main/scala/<package>/`
+- **Test file location**: `src/test/scala/{package}/{StoryNameSpec}.scala`
+- **Source file location**: `src/main/scala/{package}/`
 - **Build tool**: `sbt` by default. Check for `mill` (`build.sc` present).
 - **Imports**: always use the project's existing import style (check 2-3 existing files before writing any new file).
 - **Functional patterns**: prefer `IO`, `Resource`, `Ref`, `Queue`, `Stream` from fs2 where applicable. Avoid `var`, mutable state, and `Future`.
@@ -431,7 +431,7 @@ When a user starts shapeitup without a specific command:
 | Error | Action |
 |-------|--------|
 | `Command not allowed in stage` | Show allowed commands, suggest correct one |
-| `Waiting for review from: <roles>` | Tell user which roles are pending, offer to run them |
+| `Waiting for review from: {roles}` | Tell user which roles are pending, offer to run them |
 | `ok: false` | Surface full message, do not auto-recover |
 | Pair programming disagreement after 3 rounds | Surface both positions to user |
 | Security HIGH finding | Surface immediately, do not proceed without user acknowledgement |
