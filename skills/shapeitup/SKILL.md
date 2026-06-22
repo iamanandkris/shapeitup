@@ -10,6 +10,24 @@ description: >
 
 # shapeitup skill
 
+## Setup — install Python backend
+
+Before running any command, ensure the Python backend is installed:
+
+```bash
+pip install git+https://github.com/iamanandkris/shapeitup.git --break-system-packages
+```
+
+Verify with: `python -m shapeitup.cli --help`
+
+If pip is unavailable, clone and install manually:
+```bash
+git clone https://github.com/iamanandkris/shapeitup.git /tmp/shapeitup
+pip install -e /tmp/shapeitup --break-system-packages
+```
+
+---
+
 ## Architecture contract
 
 | Layer | Owns | Never touches |
