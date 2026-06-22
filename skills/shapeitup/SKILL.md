@@ -302,8 +302,11 @@ Block if any HIGH finding.
 ### `qa-test-spec`
 You are the QA Engineer. Write failing test specifications BEFORE any implementation.
 Write spec: `.workflow/<slug>/reviews/qa-test-spec-<story-slug>.md`
-Write tests: `tests/stories/<story-slug>_test.py` — relative to the **project root** (the repo being built, NOT the `.workflow/` dir).
-Tests MUST fail before implementation.
+Write tests to the **project root** using the language-appropriate path and framework (see Project language detection table above). Examples:
+- Python: `tests/stories/<story-slug>_test.py`
+- Scala: `src/test/scala/<package>/<StorySlugSpec>.scala` — extend `CatsEffectSuite` if using CatsEffect
+- TypeScript: `src/__tests__/<story-slug>.test.ts`
+Tests MUST fail (or not compile) before any implementation is written. Confirm failure before handing off to pair-propose.
 
 ### `pair-propose`
 You are Implementer A (Proposer). Read test spec + story → propose implementation.
@@ -315,8 +318,9 @@ Write: `.workflow/<slug>/reviews/pair-challenge-<story-slug>.md`
 
 ### `pair-implement`
 You are the Implementer. Read proposal + challenge → write final consensus code.
-**Write actual source files to the project root** (e.g. `src/`, `<package>/`), NOT inside `.workflow/`. These are the deliverable files that users will run.
-Make all failing tests pass. Confirm which tests pass after writing.
+**Write actual source files to the project root** using language-appropriate locations (see Project language detection table). For Scala: `src/main/scala/<package>/`. NOT inside `.workflow/` — these are deliverable files.
+For Scala/CatsEffect: match the effect system the project uses. Read existing files in the same package before writing — replicate import style, type aliases, and any custom `App`/`Effect` traits. Never introduce `Future` or mutable state.
+Make all failing tests pass. Run the test command and confirm results.
 
 ### `tl-impl-review`
 You are the Tech Lead. Review implemented code for architecture conformance, TDD adherence, design drift.
@@ -324,6 +328,7 @@ Write: `.workflow/<slug>/reviews/tl-impl-review-<story-slug>.md`
 
 ### `qa-validate`
 You are the QA Engineer. Run tests, check all ACs covered, identify regressions.
+Use the language-appropriate test runner (see Project language detection table). For Scala: `sbt testOnly *<SpecName>` to run only the story's tests, then `sbt test` for the full suite to check for regressions.
 Write: `.workflow/<slug>/reviews/qa-validate-<story-slug>.md`
 
 ---
@@ -378,6 +383,36 @@ release-planning   → [stage-run: feedback-synth + reviews]            → appr
 ```
 
 Security Reviewer joins when Python signals: security_signal OR flagged OR ≥3 interfaces.
+
+---
+
+## Project language detection
+
+Before running any implementation command, detect the project language from the repo root:
+
+| Signal | Language | Test runner | Test file pattern | Source location |
+|--------|----------|-------------|-------------------|-----------------|
+| `build.sbt` or `*.scala` | Scala | `sbt test` or `sbt testOnly *ClassName` | `src/test/scala/**/*Spec.scala` | `src/main/scala/` |
+| `package.json` | TypeScript/JS | `npm test` or `npx jest` | `*.test.ts` or `*.spec.ts` | `src/` |
+| `go.mod` | Go | `go test ./...` | `*_test.go` | same package |
+| `Cargo.toml` | Rust | `cargo test` | `#[cfg(test)]` in same file | `src/` |
+| `pyproject.toml` / `setup.py` | Python | `python -m pytest` | `test_*.py` | package dir |
+| `pom.xml` or `build.gradle` | Java/Kotlin | `mvn test` or `./gradlew test` | `*Test.java` / `*Spec.kt` | `src/test/` |
+
+**Detect once at startup, store as `project_lang`. Apply to all qa-test-spec, pair-implement, and qa-validate commands.**
+
+### Scala / CatsEffect specifics
+
+When `project_lang = scala`:
+
+- **Test framework**: check for MUnit (`munit` in `build.sbt`), ScalaTest (`scalatest`), or Specs2. Default to MUnit if unclear.
+- **CatsEffect tests**: extend `CatsEffectSuite` (MUnit) or use `IOSpec` trait. Wrap IO assertions in `assertIO(...)` or `.assertEquals(...)`.
+- **Effect system**: if the repo has a custom `Effect` or `App` trait on top of CatsEffect, read its definition before proposing implementations — do not bypass it.
+- **Test file location**: `src/test/scala/<package>/<StoryNameSpec>.scala`
+- **Source file location**: `src/main/scala/<package>/`
+- **Build tool**: `sbt` by default. Check for `mill` (`build.sc` present).
+- **Imports**: always use the project's existing import style (check 2-3 existing files before writing any new file).
+- **Functional patterns**: prefer `IO`, `Resource`, `Ref`, `Queue`, `Stream` from fs2 where applicable. Avoid `var`, mutable state, and `Future`.
 
 ---
 
